@@ -49,7 +49,8 @@ services:
     ports:
       - "8001:8000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - soundcloud
 
@@ -64,7 +65,8 @@ services:
     ports:
       - "8002:8000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - soundcloud
 
@@ -84,9 +86,12 @@ services:
     ports:
       - "8003:8000"
     depends_on:
-      - redis
-      - minio
-      - tracks-service
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      tracks-service:
+        condition: service_started
     networks:
       - soundcloud
 
@@ -100,7 +105,8 @@ services:
     ports:
       - "8004:8000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - soundcloud
 
@@ -119,9 +125,12 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       MAX_JOB_RETRIES: ${MAX_JOB_RETRIES:-5}
     depends_on:
-      - redis
-      - minio
-      - tracks-service
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      tracks-service:
+        condition: service_started
     networks:
       - soundcloud
 
@@ -135,6 +144,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-soundcloud}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     networks:
       - soundcloud
 
@@ -144,6 +158,11 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     networks:
       - soundcloud
 

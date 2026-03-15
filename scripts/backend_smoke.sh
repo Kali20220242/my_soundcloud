@@ -37,10 +37,30 @@ import json, sys
 print(json.loads(sys.argv[1])["upload_url"])
 PY
 )"
+UPLOAD_HOST="$(python3 - <<'PY' "$UPLOAD_URL"
+import sys
+from urllib.parse import urlparse
+print(urlparse(sys.argv[1]).hostname or "")
+PY
+)"
+UPLOAD_PORT="$(python3 - <<'PY' "$UPLOAD_URL"
+import sys
+from urllib.parse import urlparse
+parsed = urlparse(sys.argv[1])
+print(parsed.port or (443 if parsed.scheme == "https" else 80))
+PY
+)"
 
 echo "[3/6] Upload file to MinIO using pre-signed URL"
 printf 'SMOKE_AUDIO_CONTENT' > "$TMP_FILE"
-curl -sS -X PUT "$UPLOAD_URL" -H 'Content-Type: audio/mpeg' --data-binary "@$TMP_FILE" >/dev/null
+if [[ "$UPLOAD_HOST" == "minio" ]]; then
+  curl -sS -X PUT "$UPLOAD_URL" \
+    --resolve "minio:${UPLOAD_PORT}:127.0.0.1" \
+    -H 'Content-Type: audio/mpeg' \
+    --data-binary "@$TMP_FILE" >/dev/null
+else
+  curl -sS -X PUT "$UPLOAD_URL" -H 'Content-Type: audio/mpeg' --data-binary "@$TMP_FILE" >/dev/null
+fi
 
 echo "[4/6] Mark upload complete"
 COMPLETE_JSON="$(curl -sS -X POST "$BASE_URL/uploads/complete" \

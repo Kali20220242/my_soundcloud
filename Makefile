@@ -22,12 +22,12 @@ seed:
 	$(COMPOSE) exec tracks-service python -m app.seed
 
 test:
-	$(COMPOSE) exec api-gateway pytest -q
-	$(COMPOSE) exec identity-service pytest -q
-	$(COMPOSE) exec tracks-service pytest -q
-	$(COMPOSE) exec upload-service pytest -q
-	$(COMPOSE) exec social-service pytest -q
-	$(COMPOSE) exec processing-worker pytest -q
+	$(COMPOSE) exec api-gateway sh -lc "PYTHONPATH=/app pytest -q"
+	$(COMPOSE) exec identity-service sh -lc "PYTHONPATH=/app pytest -q"
+	$(COMPOSE) exec tracks-service sh -lc "PYTHONPATH=/app pytest -q"
+	$(COMPOSE) exec upload-service sh -lc "PYTHONPATH=/app pytest -q"
+	$(COMPOSE) exec social-service sh -lc "PYTHONPATH=/app pytest -q"
+	$(COMPOSE) exec processing-worker sh -lc "PYTHONPATH=/app pytest -q"
 
 smoke:
 	./scripts/backend_smoke.sh
