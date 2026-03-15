@@ -72,7 +72,7 @@ echo "$COMPLETE_JSON"
 
 echo "[5/6] Poll track status"
 for _ in $(seq 1 20); do
-  TRACK_JSON="$(curl -sS "$BASE_URL/tracks/$TRACK_ID")"
+  TRACK_JSON="$(curl -sS "$BASE_URL/tracks/$TRACK_ID" -H "Authorization: Bearer $TOKEN")"
   STATUS="$(python3 - <<'PY' "$TRACK_JSON"
 import json, sys
 print(json.loads(sys.argv[1])["status"])

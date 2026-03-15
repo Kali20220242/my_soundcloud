@@ -14,6 +14,8 @@ def test_verify_dev_token_without_db(monkeypatch) -> None:
             "email": "alice@example.com",
             "name": "Alice",
             "picture": None,
+            "username": "alice",
+            "bio": None,
         }, True
 
     monkeypatch.setattr(main_module, "verify_token", fake_verify_token)
@@ -26,4 +28,5 @@ def test_verify_dev_token_without_db(monkeypatch) -> None:
     payload = response.json()
     assert payload["user_id"] == "alice"
     assert payload["email"] == "alice@example.com"
+    assert payload["username"] == "alice"
     assert payload["is_new"] is True

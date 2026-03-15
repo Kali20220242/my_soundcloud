@@ -8,7 +8,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pythonjsonlogger import jsonlogger
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -39,7 +39,7 @@ logger = logging.getLogger(SERVICE_NAME)
 rate_limit = os.getenv("RATE_LIMIT", "100/minute")
 limiter = Limiter(key_func=get_remote_address, default_limits=[rate_limit])
 
-app = FastAPI(title="API Gateway", version="0.2.0")
+app = FastAPI(title="API Gateway", version="1.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(
     RateLimitExceeded,
@@ -77,11 +77,18 @@ class PresignRequest(BaseModel):
     title: str
     artist: str
     visibility: str = "private"
+    description: str | None = Field(default=None, max_length=1000)
+    genre: str | None = Field(default=None, max_length=64)
 
 
 class CompleteRequest(BaseModel):
     track_id: str
     object_key: str
+
+
+class AvatarPresignRequest(BaseModel):
+    filename: str
+    content_type: str = "image/jpeg"
 
 
 class LikeRequest(BaseModel):
@@ -95,6 +102,21 @@ class CommentRequest(BaseModel):
 
 class FollowRequest(BaseModel):
     target_user_id: str
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    username: str | None = Field(default=None, max_length=32)
+    bio: str | None = Field(default=None, max_length=500)
+    picture: str | None = Field(default=None, max_length=1000)
+
+
+class UpdateTrackRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=180)
+    artist: str | None = Field(default=None, max_length=120)
+    visibility: str | None = Field(default=None)
+    description: str | None = Field(default=None, max_length=1000)
+    genre: str | None = Field(default=None, max_length=64)
 
 
 @app.middleware("http")
@@ -111,7 +133,22 @@ def extract_bearer_token(request: Request) -> str:
     auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
-    return auth_header.split(" ", 1)[1].strip()
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    return token
+
+
+def extract_optional_bearer_token(request: Request) -> str | None:
+    auth_header = request.headers.get("authorization")
+    if not auth_header:
+        return None
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    return token
 
 
 async def verify_identity_token(id_token: str) -> GatewayUser:
@@ -133,12 +170,19 @@ async def auth_from_request(request: Request) -> GatewayUser:
     return await verify_identity_token(token)
 
 
+async def optional_auth_from_request(request: Request) -> GatewayUser | None:
+    token = extract_optional_bearer_token(request)
+    if not token:
+        return None
+    return await verify_identity_token(token)
+
+
 async def proxy_request(
     method: str,
     url: str,
     json_body: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
-    params: dict[str, str] | None = None,
+    params: dict[str, Any] | None = None,
 ) -> Any:
     async with httpx.AsyncClient(timeout=8.0) as client:
         response = await client.request(
@@ -151,13 +195,27 @@ async def proxy_request(
 
     if response.status_code >= 500:
         raise HTTPException(status_code=502, detail="Upstream service error")
+
     if response.status_code >= 400:
-        detail = response.json().get("detail", "Bad request") if response.headers.get("content-type", "").startswith("application/json") else "Bad request"
+        detail = "Bad request"
+        if response.headers.get("content-type", "").startswith("application/json"):
+            try:
+                detail = response.json().get("detail", detail)
+            except Exception:
+                pass
+        elif response.text:
+            detail = response.text[:200]
         raise HTTPException(status_code=response.status_code, detail=detail)
 
     if not response.content:
         return None
     return response.json()
+
+
+def user_header(user: GatewayUser | None) -> dict[str, str] | None:
+    if user is None:
+        return None
+    return {"x-user-id": user.user_id}
 
 
 @app.get("/healthz")
@@ -200,24 +258,118 @@ async def auth_verify(request: Request, payload: VerifyRequest | None = None) ->
     return {"user_id": user.user_id, "email": user.email}
 
 
+@app.get("/me")
+@limiter.limit("20/second")
+async def get_me(request: Request) -> dict[str, Any]:
+    user = await auth_from_request(request)
+    return await proxy_request("GET", f"{IDENTITY_SERVICE_URL}/users/{user.user_id}")
+
+
+@app.patch("/me")
+@limiter.limit("10/second")
+async def update_me(request: Request, payload: UpdateProfileRequest) -> dict[str, Any]:
+    user = await auth_from_request(request)
+    return await proxy_request(
+        "PATCH",
+        f"{IDENTITY_SERVICE_URL}/users/me",
+        json_body=payload.model_dump(exclude_none=True),
+        headers={"x-user-id": user.user_id},
+    )
+
+
+@app.get("/users/{user_id}")
+@limiter.limit("30/second")
+async def get_user(request: Request, user_id: str) -> dict[str, Any]:
+    return await proxy_request("GET", f"{IDENTITY_SERVICE_URL}/users/{user_id}")
+
+
+@app.get("/users")
+@limiter.limit("30/second")
+async def list_users(request: Request, query: str | None = None, limit: int = 20) -> dict[str, Any]:
+    params: dict[str, Any] = {"limit": limit}
+    if query:
+        params["query"] = query
+    return await proxy_request("GET", f"{IDENTITY_SERVICE_URL}/users", params=params)
+
+
 @app.get("/tracks")
 @limiter.limit("30/second")
-async def list_tracks(request: Request, owner_id: str | None = None, status: str | None = None, visibility: str | None = None) -> dict[str, Any]:
-    params: dict[str, str] = {}
+async def list_tracks(
+    request: Request,
+    owner_id: str | None = None,
+    status: str | None = None,
+    visibility: str | None = None,
+    q: str | None = None,
+    sort: str = "recent",
+    limit: int = 20,
+    offset: int = 0,
+) -> dict[str, Any]:
+    user = await optional_auth_from_request(request)
+    params: dict[str, Any] = {
+        "sort": sort,
+        "limit": limit,
+        "offset": offset,
+    }
     if owner_id:
         params["owner_id"] = owner_id
     if status:
         params["status"] = status
     if visibility:
         params["visibility"] = visibility
+    if q:
+        params["q"] = q
 
-    return await proxy_request("GET", f"{TRACKS_SERVICE_URL}/tracks", params=params)
+    return await proxy_request(
+        "GET",
+        f"{TRACKS_SERVICE_URL}/tracks",
+        params=params,
+        headers=user_header(user),
+    )
 
 
 @app.get("/tracks/{track_id}")
 @limiter.limit("30/second")
 async def get_track(request: Request, track_id: str) -> dict[str, Any]:
-    return await proxy_request("GET", f"{TRACKS_SERVICE_URL}/tracks/{track_id}")
+    user = await optional_auth_from_request(request)
+    return await proxy_request(
+        "GET",
+        f"{TRACKS_SERVICE_URL}/tracks/{track_id}",
+        headers=user_header(user),
+    )
+
+
+@app.patch("/tracks/{track_id}")
+@limiter.limit("15/second")
+async def update_track(request: Request, track_id: str, payload: UpdateTrackRequest) -> dict[str, Any]:
+    user = await auth_from_request(request)
+    return await proxy_request(
+        "PATCH",
+        f"{TRACKS_SERVICE_URL}/tracks/{track_id}",
+        json_body=payload.model_dump(exclude_none=True),
+        headers={"x-user-id": user.user_id},
+    )
+
+
+@app.delete("/tracks/{track_id}")
+@limiter.limit("15/second")
+async def delete_track(request: Request, track_id: str) -> dict[str, Any]:
+    user = await auth_from_request(request)
+    return await proxy_request(
+        "DELETE",
+        f"{TRACKS_SERVICE_URL}/tracks/{track_id}",
+        headers={"x-user-id": user.user_id},
+    )
+
+
+@app.post("/tracks/{track_id}/play")
+@limiter.limit("40/second")
+async def register_track_play(request: Request, track_id: str) -> dict[str, Any]:
+    user = await optional_auth_from_request(request)
+    return await proxy_request(
+        "POST",
+        f"{TRACKS_SERVICE_URL}/tracks/{track_id}/play",
+        headers=user_header(user),
+    )
 
 
 @app.post("/uploads/presign")
@@ -244,6 +396,18 @@ async def upload_complete(request: Request, payload: CompleteRequest) -> dict[st
     )
 
 
+@app.post("/uploads/avatar/presign")
+@limiter.limit("10/second")
+async def avatar_upload_presign(request: Request, payload: AvatarPresignRequest) -> dict[str, Any]:
+    user = await auth_from_request(request)
+    return await proxy_request(
+        "POST",
+        f"{UPLOAD_SERVICE_URL}/uploads/avatar/presign",
+        json_body=payload.model_dump(),
+        headers={"x-user-id": user.user_id},
+    )
+
+
 @app.post("/social/likes")
 @limiter.limit("20/second")
 async def social_like(request: Request, payload: LikeRequest) -> dict[str, Any]:
@@ -265,6 +429,12 @@ async def social_unlike(request: Request, track_id: str) -> dict[str, Any]:
         f"{SOCIAL_SERVICE_URL}/likes/{track_id}",
         headers={"x-user-id": user.user_id},
     )
+
+
+@app.get("/social/likes/{track_id}/count")
+@limiter.limit("30/second")
+async def social_likes_count(request: Request, track_id: str) -> dict[str, Any]:
+    return await proxy_request("GET", f"{SOCIAL_SERVICE_URL}/likes/{track_id}/count")
 
 
 @app.post("/social/comments")
@@ -295,3 +465,20 @@ async def social_follow(request: Request, payload: FollowRequest) -> dict[str, A
         json_body=payload.model_dump(),
         headers={"x-user-id": user.user_id},
     )
+
+
+@app.delete("/social/follows/{target_user_id}")
+@limiter.limit("20/second")
+async def social_unfollow(request: Request, target_user_id: str) -> dict[str, Any]:
+    user = await auth_from_request(request)
+    return await proxy_request(
+        "DELETE",
+        f"{SOCIAL_SERVICE_URL}/follows/{target_user_id}",
+        headers={"x-user-id": user.user_id},
+    )
+
+
+@app.get("/social/profiles/{user_id}/stats")
+@limiter.limit("30/second")
+async def social_profile_stats(request: Request, user_id: str) -> dict[str, Any]:
+    return await proxy_request("GET", f"{SOCIAL_SERVICE_URL}/profiles/{user_id}/stats")

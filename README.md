@@ -1,33 +1,48 @@
-# SoundCloud MVP Microservices (Backend First)
+# SoundCloud Microservices Web App
 
-Backend-first microservices MVP for a mini SoundCloud clone.
+Full-stack web app (not landing/MVP shell) built as microservices.
 
 ## Stack
 
+- Frontend: React + Vite + React Router
 - API services: FastAPI (Python 3.12)
 - Database: PostgreSQL (metadata only)
 - Queue/Cache: Redis
 - Object storage: MinIO (S3-compatible)
 - Reverse proxy: Nginx
-- Frontend scaffold: React + Vite (optional for this stage)
 
 ## Services
 
 - `api-gateway`: single entrypoint, CORS/CSRF/rate-limit, auth-aware routing
-- `identity-service`: verifies Firebase ID token (or `AUTH_BYPASS=1`) and upserts user profile
-- `tracks-service`: track CRUD + internal publish/fail endpoints
-- `upload-service`: issues pre-signed upload URL and queues processing after upload completion
-- `social-service`: likes, comments, follows
-- `processing-worker`: consumes Redis jobs, checks MinIO object, publishes track
+- `identity-service`: Firebase token verification, profile data (`username`, `bio`, `picture`)
+- `tracks-service`: track CRUD, feed filters/search/sort, play counter
+- `upload-service`: pre-signed upload for tracks + avatar image pre-signed upload
+- `social-service`: likes, comments, follows, profile stats
+- `processing-worker`: consumes Redis jobs and publishes processed tracks
+- `web`: multi-page SPA (`/`, `/login`, `/upload`, `/tracks/:id`, `/profiles/:userId`)
 
 ## Core flow
 
-1. Client signs in with Firebase and gets `ID token`.
-2. Client calls gateway endpoints with `Authorization: Bearer <id_token>`.
+1. Client signs in (`dev:*` token locally or Firebase Google).
+2. Frontend sends `Authorization: Bearer <id_token>` to gateway.
 3. Gateway verifies token via `identity-service` and forwards `x-user-id`.
-4. `upload-service` returns pre-signed URL + creates track in `processing` state.
-5. Client uploads file to MinIO and calls `/uploads/complete`.
-6. Worker consumes queue job and marks track as `published` (or `failed`).
+4. Upload track flow:
+   - `/uploads/presign`
+   - direct PUT to MinIO
+   - `/uploads/complete`
+   - worker marks track `processing -> published`
+5. Avatar flow:
+   - `/uploads/avatar/presign`
+   - direct PUT to MinIO
+   - `/me` PATCH with `picture` URL
+
+## Frontend pages
+
+- `GET /` Feed page (search/sort, track cards)
+- `GET /login` Login page
+- `GET /upload` Upload page (auth required)
+- `GET /tracks/:trackId` Track page (player, comments, likes, owner editing)
+- `GET /profiles/:userId` Profile page (avatar, profile edit, user tracks, follow/unfollow)
 
 ## Quick start
 
@@ -39,42 +54,31 @@ make migrate
 
 Open:
 
+- Web app: `http://localhost:5173`
 - Gateway: `http://localhost:8088/api`
 - OpenAPI docs: `http://localhost:8088/api/docs`
 - MinIO console: `http://localhost:9001`
 
-## Verify Backend Flow
+## Validation
 
 ```bash
+make test
 make smoke
 ```
 
-The smoke script runs:
-
-1. `/auth/verify`
-2. `/uploads/presign`
-3. file upload to MinIO (pre-signed URL)
-4. `/uploads/complete`
-5. status polling until track is `published`
-
-## Migrations
-
-Each service has its own Alembic history and version table in the shared PostgreSQL database:
-
-- `identity-service` -> `alembic_version_identity`
-- `tracks-service` -> `alembic_version_tracks`
-- `social-service` -> `alembic_version_social`
-- `upload-service` -> `alembic_version_upload` (baseline only, no SQL schema yet)
+`make smoke` verifies auth -> presign -> upload -> queue -> publish flow.
 
 ## Important env vars
 
 - `DATABASE_URL`
 - `REDIS_URL`
-- `MINIO_*`
+- `MINIO_ENDPOINT`
+- `MINIO_PUBLIC_ENDPOINT`
+- `MINIO_BUCKET`
 - `INTERNAL_API_TOKEN`
-- `STARTUP_STRICT` (`1` to fail service startup when DB init fails)
-- `AUTH_BYPASS` (`1` for local dev without Firebase credentials)
-- `FIREBASE_CREDENTIALS_PATH` (required only when `AUTH_BYPASS=0`)
+- `AUTH_BYPASS`
+- `FIREBASE_CREDENTIALS_PATH`
+- `VITE_FIREBASE_*` (optional for Google login on web)
 
 ## Monorepo structure
 

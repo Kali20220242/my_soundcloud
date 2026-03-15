@@ -1,7 +1,7 @@
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException
@@ -105,7 +105,7 @@ def on_startup() -> None:
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     logger.info("healthcheck", extra={"service": SERVICE_NAME})
-    return {"status": "ok", "service": SERVICE_NAME, "ts": datetime.utcnow().isoformat()}
+    return {"status": "ok", "service": SERVICE_NAME, "ts": datetime.now(UTC).isoformat()}
 
 
 @app.post("/likes")

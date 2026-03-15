@@ -12,7 +12,7 @@ def test_presign_contract(monkeypatch) -> None:
         def generate_presigned_url(*args, **kwargs):
             return "http://minio.local/presigned-url"
 
-    monkeypatch.setattr(main_module, "s3_client", FakeS3Client())
+    monkeypatch.setattr(main_module, "presign_client", FakeS3Client())
 
     with TestClient(app) as client:
         response = client.post(
@@ -33,3 +33,31 @@ def test_presign_contract(monkeypatch) -> None:
     assert payload["bucket"]
     assert payload["object_key"].startswith("raw/alice/")
     assert payload["upload_url"] == "http://minio.local/presigned-url"
+
+
+def test_avatar_presign_contract(monkeypatch) -> None:
+    class FakeS3Client:
+        @staticmethod
+        def generate_presigned_url(*args, **kwargs):
+            return "http://minio.local/avatar-presigned-url"
+
+    monkeypatch.setattr(main_module, "presign_client", FakeS3Client())
+    monkeypatch.setattr(main_module, "MINIO_PUBLIC_ENDPOINT", "http://cdn.local")
+    monkeypatch.setattr(main_module, "MINIO_BUCKET", "tracks")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/uploads/avatar/presign",
+            headers={"x-user-id": "alice"},
+            json={
+                "filename": "avatar.png",
+                "content_type": "image/png",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["bucket"] == "tracks"
+    assert payload["object_key"].startswith("avatars/alice/")
+    assert payload["upload_url"] == "http://minio.local/avatar-presigned-url"
+    assert payload["public_url"].startswith("http://cdn.local/tracks/avatars/alice/")

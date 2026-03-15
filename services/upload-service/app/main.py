@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import boto3
@@ -19,6 +19,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 QUEUE_NAME = os.getenv("PROCESSING_QUEUE", "processing:jobs")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "tracks")
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
+MINIO_PUBLIC_ENDPOINT = os.getenv("MINIO_PUBLIC_ENDPOINT", MINIO_ENDPOINT)
 MINIO_REGION = os.getenv("MINIO_REGION", "us-east-1")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ROOT_USER", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
@@ -50,6 +51,15 @@ s3_client = boto3.client(
     config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
 )
 
+presign_client = boto3.client(
+    "s3",
+    endpoint_url=MINIO_PUBLIC_ENDPOINT,
+    aws_access_key_id=MINIO_ACCESS_KEY,
+    aws_secret_access_key=MINIO_SECRET_KEY,
+    region_name=MINIO_REGION,
+    config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+)
+
 
 class PresignRequest(BaseModel):
     filename: str
@@ -57,11 +67,18 @@ class PresignRequest(BaseModel):
     title: str = Field(min_length=1, max_length=180)
     artist: str = Field(min_length=1, max_length=120)
     visibility: str = "private"
+    description: str | None = Field(default=None, max_length=1000)
+    genre: str | None = Field(default=None, max_length=64)
 
 
 class CompleteRequest(BaseModel):
     track_id: str
     object_key: str
+
+
+class AvatarPresignRequest(BaseModel):
+    filename: str
+    content_type: str = "image/jpeg"
 
 
 def sanitize_filename(filename: str) -> str:
@@ -75,6 +92,10 @@ def get_user_id(header_user_id: str | None) -> str:
     return header_user_id
 
 
+def join_url(base: str, path: str) -> str:
+    return f"{base.rstrip('/')}/{path.lstrip('/')}"
+
+
 def create_track(owner_id: str, payload: PresignRequest, object_key: str) -> str:
     with httpx.Client(timeout=6.0) as client:
         response = client.post(
@@ -85,6 +106,8 @@ def create_track(owner_id: str, payload: PresignRequest, object_key: str) -> str
                 "artist": payload.artist,
                 "raw_object_key": object_key,
                 "visibility": payload.visibility,
+                "description": payload.description,
+                "genre": payload.genre,
             },
         )
 
@@ -116,7 +139,7 @@ def enqueue_processing(track_id: str, owner_id: str, object_key: str) -> str:
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     logger.info("healthcheck", extra={"service": SERVICE_NAME})
-    return {"status": "ok", "service": SERVICE_NAME, "ts": datetime.utcnow().isoformat()}
+    return {"status": "ok", "service": SERVICE_NAME, "ts": datetime.now(UTC).isoformat()}
 
 
 @app.post("/uploads/presign")
@@ -133,7 +156,7 @@ def create_presigned_upload(
 
     track_id = create_track(owner_id=owner_id, payload=payload, object_key=object_key)
 
-    upload_url = s3_client.generate_presigned_url(
+    upload_url = presign_client.generate_presigned_url(
         "put_object",
         Params={"Bucket": MINIO_BUCKET, "Key": object_key, "ContentType": payload.content_type},
         ExpiresIn=PRESIGN_EXPIRES_SECONDS,
@@ -156,7 +179,10 @@ def mark_upload_complete(
     owner_id = get_user_id(x_user_id)
 
     with httpx.Client(timeout=6.0) as client:
-        track_response = client.get(f"{TRACKS_SERVICE_URL}/tracks/{payload.track_id}")
+        track_response = client.get(
+            f"{TRACKS_SERVICE_URL}/tracks/{payload.track_id}",
+            headers={"x-user-id": owner_id},
+        )
 
     if track_response.status_code != 200:
         raise HTTPException(status_code=404, detail="Track not found")
@@ -169,3 +195,28 @@ def mark_upload_complete(
 
     job_id = enqueue_processing(track_id=payload.track_id, owner_id=owner_id, object_key=payload.object_key)
     return {"status": "queued", "job_id": job_id}
+
+
+@app.post("/uploads/avatar/presign")
+def create_avatar_presigned_upload(
+    payload: AvatarPresignRequest,
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, str | int]:
+    owner_id = get_user_id(x_user_id)
+    safe_name = sanitize_filename(payload.filename)
+    object_key = f"avatars/{owner_id}/{uuid4()}-{safe_name}"
+
+    upload_url = presign_client.generate_presigned_url(
+        "put_object",
+        Params={"Bucket": MINIO_BUCKET, "Key": object_key, "ContentType": payload.content_type},
+        ExpiresIn=PRESIGN_EXPIRES_SECONDS,
+    )
+    public_url = join_url(join_url(MINIO_PUBLIC_ENDPOINT, MINIO_BUCKET), object_key)
+
+    return {
+        "object_key": object_key,
+        "bucket": MINIO_BUCKET,
+        "upload_url": upload_url,
+        "public_url": public_url,
+        "expires_in_seconds": PRESIGN_EXPIRES_SECONDS,
+    }
