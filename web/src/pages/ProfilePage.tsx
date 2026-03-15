@@ -11,6 +11,7 @@ import {
   updateMe
 } from "../api";
 import { useAuth } from "../auth";
+import { ArtworkTile } from "../components/ArtworkTile";
 import type { Track, UserProfile } from "../types";
 
 export function ProfilePage() {
@@ -168,7 +169,7 @@ export function ProfilePage() {
 
   return (
     <section className="page profile-page">
-      <article className="card">
+      <article className="card profile-hero">
         <div className="inline split">
           <h1>{profile.name || profile.username || profile.user_id}</h1>
           <span className="muted">@{profile.username || profile.user_id}</span>
@@ -244,18 +245,21 @@ export function ProfilePage() {
           <h2>Tracks</h2>
           {isOwner ? <Link to="/upload">Upload new track</Link> : null}
         </div>
-        <div className="track-grid">
+        <div className="stream-list">
           {tracks.map((track) => (
-            <article key={track.id} className="track-card card soft">
-              <h3>{track.title}</h3>
-              <p className="muted">{track.artist}</p>
-              <div className="inline">
-                <span className="badge">{track.status}</span>
-                <span className="badge">{track.visibility}</span>
-                <span className="badge">plays: {track.plays_count}</span>
+            <article key={track.id} className="card stream-item stream-item-compact">
+              <ArtworkTile seed={track.id} title={track.title} size="sm" />
+              <div className="stream-body">
+                <h3>{track.title}</h3>
+                <p className="muted">{track.artist}</p>
+                <div className="inline">
+                  <span className="badge">{track.status}</span>
+                  <span className="badge">{track.visibility}</span>
+                  <span className="badge">plays: {track.plays_count}</span>
+                </div>
+                {track.genre ? <p className="muted">{track.genre}</p> : null}
+                <Link to={`/tracks/${track.id}`}>Open track</Link>
               </div>
-              {track.genre ? <p className="muted">{track.genre}</p> : null}
-              <Link to={`/tracks/${track.id}`}>Open track</Link>
             </article>
           ))}
         </div>

@@ -14,6 +14,7 @@ import {
   updateTrack
 } from "../api";
 import { useAuth } from "../auth";
+import { ArtworkTile } from "../components/ArtworkTile";
 import type { Comment, Track, Visibility } from "../types";
 
 export function TrackPage() {
@@ -197,34 +198,38 @@ export function TrackPage() {
 
   return (
     <section className="page track-page">
-      <article className="card">
-        <h1>{track.title}</h1>
-        <p className="muted">
-          {track.artist} • <Link to={`/profiles/${track.owner_id}`}>@{track.owner_id}</Link>
-        </p>
-        <div className="inline">
-          <span className="badge">{track.visibility}</span>
-          <span className="badge">{track.status}</span>
-          <span className="badge">plays: {track.plays_count}</span>
-          {track.genre ? <span className="badge">{track.genre}</span> : null}
+      <article className="card hero-track">
+        <ArtworkTile seed={track.id} title={track.title} size="lg" />
+        <div className="hero-track-body">
+          <h1>{track.title}</h1>
+          <p className="muted">
+            {track.artist} • <Link to={`/profiles/${track.owner_id}`}>@{track.owner_id}</Link>
+          </p>
+          <div className="inline">
+            <span className="badge">{track.visibility}</span>
+            <span className="badge">{track.status}</span>
+            <span className="badge">plays: {track.plays_count}</span>
+            {track.genre ? <span className="badge">{track.genre}</span> : null}
+          </div>
+          {track.description ? <p>{track.description}</p> : null}
+          <div className="inline">
+            <span className="badge ok">Likes: {likes}</span>
+            <button disabled={!token} onClick={() => void handleLike()}>
+              Like
+            </button>
+            <button className="ghost" disabled={!token || !likedByMe} onClick={() => void handleUnlike()}>
+              Unlike
+            </button>
+          </div>
         </div>
-        {track.description ? <p>{track.description}</p> : null}
+      </article>
 
+      <article className="card player-card">
         {buildTrackAudioUrl(track) ? (
           <audio className="audio" controls preload="none" src={buildTrackAudioUrl(track) || undefined} onPlay={() => void handlePlay()} />
         ) : (
           <p className="muted">Track is not published yet.</p>
         )}
-
-        <div className="inline">
-          <span className="badge ok">Likes: {likes}</span>
-          <button disabled={!token} onClick={() => void handleLike()}>
-            Like
-          </button>
-          <button className="ghost" disabled={!token || !likedByMe} onClick={() => void handleUnlike()}>
-            Unlike
-          </button>
-        </div>
       </article>
 
       <article className="card">

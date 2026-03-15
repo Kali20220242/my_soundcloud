@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { listTracks } from "../api";
 import { useAuth } from "../auth";
+import { ArtworkTile } from "../components/ArtworkTile";
 import type { Track } from "../types";
 
 function statusClass(status: Track["status"]) {
@@ -55,13 +56,13 @@ export function FeedPage() {
   return (
     <section className="page">
       <div className="page-header">
-        <h1>Feed</h1>
-        <p className="muted">Public tracks from creators. Open track page for player and social activity.</p>
+        <h1>Stream</h1>
+        <p className="muted">Listen to the latest public uploads. Open any track for full player and social actions.</p>
       </div>
 
-      <div className="card filters">
+      <div className="card filters stream-filters">
         <label>
-          Search tracks
+          Find in stream
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="title, artist, genre" />
         </label>
         <label>
@@ -77,23 +78,35 @@ export function FeedPage() {
       {error ? <p className="error">{error}</p> : null}
       {loading ? <p className="muted">Loading feed...</p> : null}
 
-      <div className="track-grid">
+      <div className="stream-list">
         {tracks.map((track) => (
-          <article key={track.id} className="card track-card">
-            <div className="inline split">
-              <h3>{track.title}</h3>
-              <span className={`badge ${statusClass(track.status)}`}>{track.status}</span>
-            </div>
-            <p className="muted">{track.artist}</p>
-            <div className="inline">
-              <span className="badge">{track.visibility}</span>
-              <span className="badge">plays: {track.plays_count}</span>
-              {track.genre ? <span className="badge">{track.genre}</span> : null}
-            </div>
-            {track.description ? <p>{track.description}</p> : null}
-            <div className="inline">
-              <Link to={`/tracks/${track.id}`}>Open track</Link>
-              <Link to={`/profiles/${track.owner_id}`}>@{track.owner_id}</Link>
+          <article key={track.id} className="card stream-item">
+            <ArtworkTile seed={track.id} title={track.title} size="md" />
+
+            <div className="stream-body">
+              <div className="inline split">
+                <div>
+                  <p className="stream-owner">
+                    <Link to={`/profiles/${track.owner_id}`}>@{track.owner_id}</Link>
+                  </p>
+                  <h3>{track.title}</h3>
+                  <p className="muted">{track.artist}</p>
+                </div>
+                <span className={`badge ${statusClass(track.status)}`}>{track.status}</span>
+              </div>
+
+              <div className="inline">
+                <span className="badge">{track.visibility}</span>
+                <span className="badge">plays: {track.plays_count}</span>
+                {track.genre ? <span className="badge">{track.genre}</span> : null}
+              </div>
+
+              {track.description ? <p>{track.description}</p> : null}
+
+              <div className="inline">
+                <Link to={`/tracks/${track.id}`}>Play track</Link>
+                <Link to={`/profiles/${track.owner_id}`}>Visit artist</Link>
+              </div>
             </div>
           </article>
         ))}

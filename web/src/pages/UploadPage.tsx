@@ -70,9 +70,9 @@ export function UploadPage() {
   }
 
   return (
-    <section className="page card narrow">
-      <h1>Upload Track</h1>
-      <p className="muted">Create new track and publish it into the feed after processing.</p>
+    <section className="page card narrow upload-page">
+      <h1>Upload New Track</h1>
+      <p className="muted">Fill metadata, upload audio, and it will appear in stream after processing.</p>
 
       <form className="form" onSubmit={submitUpload}>
         <label>

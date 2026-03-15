@@ -46,9 +46,9 @@ export function LoginPage() {
   }
 
   return (
-    <section className="page card narrow">
-      <h1>Login</h1>
-      <p className="muted">Use Firebase Google auth or development token.</p>
+    <section className="page card narrow auth-page">
+      <h1>Sign in to SoundCloud</h1>
+      <p className="muted">Use Firebase Google auth or development token for local mode.</p>
 
       <form className="form" onSubmit={submitDevToken}>
         <label>
