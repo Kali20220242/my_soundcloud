@@ -20,6 +20,7 @@ except Exception:  # pragma: no cover
 SERVICE_NAME = "identity-service"
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@postgres:5432/soundcloud")
 AUTH_BYPASS = os.getenv("AUTH_BYPASS", "1") == "1"
+STARTUP_STRICT = os.getenv("STARTUP_STRICT", "0") == "1"
 
 
 def configure_logging() -> None:
@@ -167,8 +168,13 @@ def upsert_user(claims: IdentityClaims) -> tuple[dict[str, str | None], bool]:
 
 @app.on_event("startup")
 def on_startup() -> None:
-    create_tables()
-    init_firebase()
+    try:
+        create_tables()
+        init_firebase()
+    except Exception as exc:  # pragma: no cover
+        logger.exception("startup_partial_failure", extra={"service": SERVICE_NAME, "error": str(exc)})
+        if STARTUP_STRICT:
+            raise
     logger.info("startup_complete", extra={"service": SERVICE_NAME, "bypass": AUTH_BYPASS})
 
 

@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-def test_create_track_contract() -> None:
+def test_create_track_invalid_visibility() -> None:
     with TestClient(app) as client:
         response = client.post(
             "/tracks",
@@ -12,11 +12,9 @@ def test_create_track_contract() -> None:
                 "title": "Track A",
                 "artist": "Artist A",
                 "raw_object_key": "raw/dev-user/test.mp3",
-                "visibility": "private",
+                "visibility": "friends-only",
             },
         )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "processing"
-    assert payload["title"] == "Track A"
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid visibility"

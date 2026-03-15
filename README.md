@@ -34,6 +34,7 @@ Backend-first microservices MVP for a mini SoundCloud clone.
 ```bash
 cp .env.example .env
 make up
+make migrate
 ```
 
 Open:
@@ -42,12 +43,36 @@ Open:
 - OpenAPI docs: `http://localhost:8088/api/docs`
 - MinIO console: `http://localhost:9001`
 
+## Verify Backend Flow
+
+```bash
+make smoke
+```
+
+The smoke script runs:
+
+1. `/auth/verify`
+2. `/uploads/presign`
+3. file upload to MinIO (pre-signed URL)
+4. `/uploads/complete`
+5. status polling until track is `published`
+
+## Migrations
+
+Each service has its own Alembic history and version table in the shared PostgreSQL database:
+
+- `identity-service` -> `alembic_version_identity`
+- `tracks-service` -> `alembic_version_tracks`
+- `social-service` -> `alembic_version_social`
+- `upload-service` -> `alembic_version_upload` (baseline only, no SQL schema yet)
+
 ## Important env vars
 
 - `DATABASE_URL`
 - `REDIS_URL`
 - `MINIO_*`
 - `INTERNAL_API_TOKEN`
+- `STARTUP_STRICT` (`1` to fail service startup when DB init fails)
 - `AUTH_BYPASS` (`1` for local dev without Firebase credentials)
 - `FIREBASE_CREDENTIALS_PATH` (required only when `AUTH_BYPASS=0`)
 

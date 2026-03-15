@@ -45,6 +45,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       AUTH_BYPASS: ${AUTH_BYPASS:-1}
       FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
+      STARTUP_STRICT: ${STARTUP_STRICT:-0}
     ports:
       - "8001:8000"
     depends_on:
@@ -59,6 +60,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+      STARTUP_STRICT: ${STARTUP_STRICT:-0}
     ports:
       - "8002:8000"
     depends_on:
@@ -94,6 +96,7 @@ services:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      STARTUP_STRICT: ${STARTUP_STRICT:-0}
     ports:
       - "8004:8000"
     depends_on:

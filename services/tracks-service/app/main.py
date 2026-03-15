@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, text
 SERVICE_NAME = "tracks-service"
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@postgres:5432/soundcloud")
 INTERNAL_API_TOKEN = os.getenv("INTERNAL_API_TOKEN", "")
+STARTUP_STRICT = os.getenv("STARTUP_STRICT", "0") == "1"
 
 
 def configure_logging() -> None:
@@ -105,7 +106,12 @@ def serialize_track(row) -> dict[str, str | int | float | None]:
 
 @app.on_event("startup")
 def on_startup() -> None:
-    create_tables()
+    try:
+        create_tables()
+    except Exception as exc:  # pragma: no cover
+        logger.exception("startup_partial_failure", extra={"service": SERVICE_NAME, "error": str(exc)})
+        if STARTUP_STRICT:
+            raise
     logger.info("startup_complete", extra={"service": SERVICE_NAME})
 
 

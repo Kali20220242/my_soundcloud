@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 COMPOSE := docker compose
 
-.PHONY: up down logs migrate seed test
+.PHONY: up down logs migrate seed test smoke
 
 up:
 	$(COMPOSE) up --build -d
@@ -27,3 +27,7 @@ test:
 	$(COMPOSE) exec tracks-service pytest -q
 	$(COMPOSE) exec upload-service pytest -q
 	$(COMPOSE) exec social-service pytest -q
+	$(COMPOSE) exec processing-worker pytest -q
+
+smoke:
+	./scripts/backend_smoke.sh
