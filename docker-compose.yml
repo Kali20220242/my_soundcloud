@@ -41,6 +41,10 @@ services:
     build: ./services/identity-service
     env_file:
       - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      AUTH_BYPASS: ${AUTH_BYPASS:-1}
+      FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
     ports:
       - "8001:8000"
     depends_on:
@@ -52,6 +56,9 @@ services:
     build: ./services/tracks-service
     env_file:
       - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
     ports:
       - "8002:8000"
     depends_on:
@@ -63,11 +70,21 @@ services:
     build: ./services/upload-service
     env_file:
       - .env
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      PROCESSING_QUEUE: ${PROCESSING_QUEUE:-processing:jobs}
+      TRACKS_SERVICE_URL: http://tracks-service:8000
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      PRESIGN_EXPIRES_SECONDS: ${PRESIGN_EXPIRES_SECONDS:-3600}
     ports:
       - "8003:8000"
     depends_on:
       - redis
       - minio
+      - tracks-service
     networks:
       - soundcloud
 
@@ -75,6 +92,8 @@ services:
     build: ./services/social-service
     env_file:
       - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
     ports:
       - "8004:8000"
     depends_on:
@@ -86,9 +105,20 @@ services:
     build: ./services/processing-worker
     env_file:
       - .env
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      PROCESSING_QUEUE: ${PROCESSING_QUEUE:-processing:jobs}
+      TRACKS_SERVICE_URL: http://tracks-service:8000
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MAX_JOB_RETRIES: ${MAX_JOB_RETRIES:-5}
     depends_on:
       - redis
       - minio
+      - tracks-service
     networks:
       - soundcloud
 
@@ -136,7 +166,6 @@ services:
       /bin/sh -c "
       until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin}; do sleep 1; done;
       mc mb -p local/${MINIO_BUCKET:-tracks} || true;
-      mc anonymous set download local/${MINIO_BUCKET:-tracks} || true;
       exit 0;
       "
     networks:

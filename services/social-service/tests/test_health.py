@@ -4,9 +4,8 @@ from app.main import app
 
 
 def test_healthz() -> None:
-    client = TestClient(app)
-    response = client.get("/healthz")
+    with TestClient(app) as client:
+        response = client.get("/healthz")
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "ok"
+    assert response.json()["status"] == "ok"
