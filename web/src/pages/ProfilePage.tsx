@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   follow,
   getUser,
+  importSoundCloudTracks,
   listTracks,
   presignAvatarUpload,
   profileStats,
@@ -33,6 +34,10 @@ export function ProfilePage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [scToken, setScToken] = useState("");
+  const [scLimit, setScLimit] = useState("200");
+  const [scBusy, setScBusy] = useState(false);
+  const [scMessage, setScMessage] = useState<string | null>(null);
 
   const isOwner = useMemo(() => {
     if (!profile || !user) return false;
@@ -154,6 +159,32 @@ export function ProfilePage() {
     setFollowers(response.followers);
   }
 
+  async function importFromSoundCloud(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token || !isOwner || !profile) return;
+    if (!scToken.trim()) {
+      setScMessage("SoundCloud access token is required");
+      return;
+    }
+
+    setScBusy(true);
+    setScMessage(null);
+    try {
+      const limit = Math.max(1, Math.min(2000, Number(scLimit) || 200));
+      const result = await importSoundCloudTracks(token, {
+        access_token: scToken.trim(),
+        limit,
+      });
+      const refreshedTracks = await listTracks({ ownerId: profile.user_id, token, sort: "recent", limit: 200 });
+      setTracks(refreshedTracks.items);
+      setScMessage(`Imported ${result.imported} tracks (created ${result.created}, updated ${result.updated}, skipped ${result.skipped}).`);
+    } catch (err) {
+      setScMessage(err instanceof Error ? err.message : "Cannot import from SoundCloud");
+    } finally {
+      setScBusy(false);
+    }
+  }
+
   if (loading) {
     return <div className="page-loading">Loading profile...</div>;
   }
@@ -248,7 +279,7 @@ export function ProfilePage() {
         <div className="stream-list">
           {tracks.map((track) => (
             <article key={track.id} className="card stream-item stream-item-compact">
-              <ArtworkTile seed={track.id} title={track.title} size="sm" />
+              <ArtworkTile seed={track.id} title={track.title} size="sm" imageUrl={track.artwork_url} />
               <div className="stream-body">
                 <h3>{track.title}</h3>
                 <p className="muted">{track.artist}</p>
@@ -267,6 +298,33 @@ export function ProfilePage() {
       </article>
 
       {myProfile && isOwner ? <p className="muted">Logged in as @{myProfile.username || myProfile.user_id}</p> : null}
+
+      {isOwner ? (
+        <article className="card">
+          <h2>Import from SoundCloud</h2>
+          <p className="muted">
+            Legal import mode: metadata only (title/artist/description/artwork/URL), without copying audio files.
+          </p>
+          <form className="form" onSubmit={importFromSoundCloud}>
+            <label>
+              SoundCloud OAuth access token
+              <textarea
+                value={scToken}
+                onChange={(event) => setScToken(event.target.value)}
+                placeholder="Paste your SoundCloud access token"
+              />
+            </label>
+            <label>
+              Max tracks to import
+              <input value={scLimit} onChange={(event) => setScLimit(event.target.value)} inputMode="numeric" />
+            </label>
+            <button type="submit" disabled={scBusy}>
+              {scBusy ? "Importing..." : "Import tracks"}
+            </button>
+          </form>
+          {scMessage ? <p className="muted">{scMessage}</p> : null}
+        </article>
+      ) : null}
     </section>
   );
 }

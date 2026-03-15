@@ -29,6 +29,10 @@ export interface Track {
   description: string | null;
   genre: string | null;
   plays_count: number;
+  source: "local" | "soundcloud";
+  source_track_id: string | null;
+  source_url: string | null;
+  artwork_url: string | null;
   duration_seconds: number | null;
   loudness_lufs: number | null;
   error_message: string | null;
@@ -66,6 +70,14 @@ export interface AvatarPresignResponse {
   upload_url: string;
   public_url: string;
   expires_in_seconds: number;
+}
+
+export interface SoundCloudImportResponse {
+  fetched: number;
+  imported: number;
+  created: number;
+  updated: number;
+  skipped: number;
 }
 
 export interface LikeResponse {

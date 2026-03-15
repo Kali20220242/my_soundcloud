@@ -35,6 +35,10 @@ Full-stack web app (not landing/MVP shell) built as microservices.
    - `/uploads/avatar/presign`
    - direct PUT to MinIO
    - `/me` PATCH with `picture` URL
+6. Legal SoundCloud import flow:
+   - user provides SoundCloud OAuth access token on profile page
+   - gateway reads `/me/tracks` from SoundCloud API
+   - only metadata is imported (title/artist/description/artwork/permalink), no audio binary copying
 
 ## Frontend pages
 
@@ -43,6 +47,7 @@ Full-stack web app (not landing/MVP shell) built as microservices.
 - `GET /upload` Upload page (auth required)
 - `GET /tracks/:trackId` Track page (player, comments, likes, owner editing)
 - `GET /profiles/:userId` Profile page (avatar, profile edit, user tracks, follow/unfollow)
+  - Includes `Import from SoundCloud` for metadata-only import
 
 ## Quick start
 
@@ -76,6 +81,7 @@ make smoke
 - `MINIO_PUBLIC_ENDPOINT`
 - `MINIO_BUCKET`
 - `INTERNAL_API_TOKEN`
+- `SOUNDCLOUD_API_BASE` (optional, default `https://api.soundcloud.com`)
 - `AUTH_BYPASS`
 - `FIREBASE_CREDENTIALS_PATH`
 - `VITE_FIREBASE_*` (optional for Google login on web)

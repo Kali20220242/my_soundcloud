@@ -2,6 +2,7 @@ interface ArtworkTileProps {
   seed: string;
   title?: string;
   size?: "sm" | "md" | "lg";
+  imageUrl?: string | null;
 }
 
 function hueFromSeed(seed: string): number {
@@ -12,7 +13,7 @@ function hueFromSeed(seed: string): number {
   return hash % 360;
 }
 
-export function ArtworkTile({ seed, title, size = "md" }: ArtworkTileProps) {
+export function ArtworkTile({ seed, title, size = "md", imageUrl }: ArtworkTileProps) {
   const hue = hueFromSeed(seed);
   const hue2 = (hue + 36) % 360;
   const style = {
@@ -21,6 +22,7 @@ export function ArtworkTile({ seed, title, size = "md" }: ArtworkTileProps) {
 
   return (
     <div className={`artwork artwork-${size}`} style={style} aria-label={title || "track artwork"}>
+      {imageUrl ? <img src={imageUrl} alt={title || "artwork"} className="artwork-image" loading="lazy" /> : null}
       <div className="artwork-fade" />
       <span className="artwork-mark">SC</span>
     </div>

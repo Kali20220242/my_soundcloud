@@ -34,3 +34,23 @@ def test_list_tracks_rejects_non_public_visibility_for_anonymous_feed() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Only public visibility is allowed for this query"
+
+
+def test_soundcloud_import_requires_user_header() -> None:
+    with TestClient(app) as client:
+        response = client.post("/imports/soundcloud", json={"owner_id": "alice", "tracks": []})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Missing x-user-id"
+
+
+def test_soundcloud_import_forbidden_on_owner_mismatch() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/imports/soundcloud",
+            headers={"x-user-id": "alice"},
+            json={"owner_id": "bob", "tracks": []},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Forbidden"

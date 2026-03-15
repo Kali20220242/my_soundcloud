@@ -7,6 +7,7 @@ import type {
   PresignRequest,
   PresignResponse,
   ProfileStats,
+  SoundCloudImportResponse,
   Track,
   TrackListResponse,
   UpdateProfilePayload,
@@ -224,14 +225,33 @@ export function profileStats(userId: string): Promise<ProfileStats> {
   return request<ProfileStats>(`/social/profiles/${userId}/stats`);
 }
 
+export function importSoundCloudTracks(
+  token: string,
+  payload: { access_token: string; limit?: number }
+): Promise<SoundCloudImportResponse> {
+  return request<SoundCloudImportResponse>("/integrations/soundcloud/import", {
+    method: "POST",
+    token,
+    body: payload
+  });
+}
+
 function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
 
 export function buildTrackAudioUrl(track: Track): string | null {
-  if (track.status !== "published" || !track.processed_object_key) {
+  if (track.source !== "local" || track.status !== "published" || !track.processed_object_key) {
     return null;
   }
 
   return joinUrl(joinUrl(MINIO_PUBLIC_ENDPOINT, MINIO_BUCKET), track.processed_object_key);
+}
+
+export function buildSoundCloudEmbedUrl(track: Track): string | null {
+  if (track.source !== "soundcloud" || !track.source_url) {
+    return null;
+  }
+
+  return `https://w.soundcloud.com/player/?url=${encodeURIComponent(track.source_url)}&color=%23ff5500&auto_play=false&show_artwork=true`;
 }

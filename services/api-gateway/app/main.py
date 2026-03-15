@@ -20,6 +20,7 @@ IDENTITY_SERVICE_URL = os.getenv("IDENTITY_SERVICE_URL", "http://identity-servic
 TRACKS_SERVICE_URL = os.getenv("TRACKS_SERVICE_URL", "http://tracks-service:8000")
 UPLOAD_SERVICE_URL = os.getenv("UPLOAD_SERVICE_URL", "http://upload-service:8000")
 SOCIAL_SERVICE_URL = os.getenv("SOCIAL_SERVICE_URL", "http://social-service:8000")
+SOUNDCLOUD_API_BASE = os.getenv("SOUNDCLOUD_API_BASE", "https://api.soundcloud.com")
 
 
 def configure_logging() -> None:
@@ -89,6 +90,11 @@ class CompleteRequest(BaseModel):
 class AvatarPresignRequest(BaseModel):
     filename: str
     content_type: str = "image/jpeg"
+
+
+class SoundCloudImportRequest(BaseModel):
+    access_token: str = Field(min_length=1, max_length=4000)
+    limit: int = Field(default=200, ge=1, le=2000)
 
 
 class LikeRequest(BaseModel):
@@ -216,6 +222,88 @@ def user_header(user: GatewayUser | None) -> dict[str, str] | None:
     if user is None:
         return None
     return {"x-user-id": user.user_id}
+
+
+def map_soundcloud_track(item: dict[str, Any]) -> dict[str, Any] | None:
+    track_id = item.get("id")
+    if track_id is None:
+        return None
+
+    source_url = item.get("permalink_url")
+    if not source_url:
+        return None
+
+    user_payload = item.get("user") if isinstance(item.get("user"), dict) else {}
+    publisher_metadata = item.get("publisher_metadata") if isinstance(item.get("publisher_metadata"), dict) else {}
+    title = str(item.get("title") or f"SoundCloud Track {track_id}").strip()
+    artist = str(user_payload.get("username") or publisher_metadata.get("artist") or "SoundCloud Artist").strip()
+    sharing = str(item.get("sharing") or "public").lower()
+    visibility = "public" if sharing == "public" else "private"
+
+    duration_ms = item.get("duration")
+    duration_seconds: int | None = None
+    if isinstance(duration_ms, (int, float)) and duration_ms >= 0:
+        duration_seconds = int(duration_ms // 1000)
+
+    playback_count = item.get("playback_count")
+    plays_count = int(playback_count) if isinstance(playback_count, (int, float)) and playback_count >= 0 else 0
+    description = item.get("description")
+    genre = item.get("genre")
+    artwork_url = item.get("artwork_url")
+
+    return {
+        "source_track_id": str(track_id),
+        "source_url": str(source_url)[:2000],
+        "title": title[:180] or f"SoundCloud Track {track_id}",
+        "artist": artist[:120] or "SoundCloud Artist",
+        "visibility": visibility,
+        "description": (str(description)[:1000] if description else None),
+        "genre": (str(genre)[:64] if genre else None),
+        "artwork_url": (str(artwork_url)[:2000] if artwork_url else None),
+        "duration_seconds": duration_seconds,
+        "plays_count": plays_count,
+    }
+
+
+async def fetch_soundcloud_tracks(access_token: str, limit: int) -> list[dict[str, Any]]:
+    collected: list[dict[str, Any]] = []
+    next_url = f"{SOUNDCLOUD_API_BASE.rstrip('/')}/me/tracks?limit=200&linked_partitioning=1"
+    auth_scheme = "Bearer"
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for scheme in ("Bearer", "OAuth"):
+            probe = await client.get(next_url, headers={"Authorization": f"{scheme} {access_token}"})
+            if probe.status_code == 200:
+                auth_scheme = scheme
+                payload = probe.json()
+                collection = payload.get("collection", []) if isinstance(payload, dict) else []
+                for item in collection:
+                    if isinstance(item, dict):
+                        collected.append(item)
+                        if len(collected) >= limit:
+                            return collected[:limit]
+                next_url = payload.get("next_href") if isinstance(payload, dict) else None
+                break
+            if probe.status_code in {401, 403}:
+                continue
+            raise HTTPException(status_code=400, detail="Cannot read SoundCloud account tracks")
+        else:
+            raise HTTPException(status_code=401, detail="Invalid SoundCloud access token")
+
+        while next_url and len(collected) < limit:
+            response = await client.get(next_url, headers={"Authorization": f"{auth_scheme} {access_token}"})
+            if response.status_code != 200:
+                break
+            payload = response.json()
+            collection = payload.get("collection", []) if isinstance(payload, dict) else []
+            for item in collection:
+                if isinstance(item, dict):
+                    collected.append(item)
+                    if len(collected) >= limit:
+                        break
+            next_url = payload.get("next_href") if isinstance(payload, dict) else None
+
+    return collected[:limit]
 
 
 @app.get("/healthz")
@@ -406,6 +494,34 @@ async def avatar_upload_presign(request: Request, payload: AvatarPresignRequest)
         json_body=payload.model_dump(),
         headers={"x-user-id": user.user_id},
     )
+
+
+@app.post("/integrations/soundcloud/import")
+@limiter.limit("5/minute")
+async def import_soundcloud(request: Request, payload: SoundCloudImportRequest) -> dict[str, Any]:
+    user = await auth_from_request(request)
+
+    source_tracks = await fetch_soundcloud_tracks(payload.access_token, payload.limit)
+    mapped_tracks = [mapped for mapped in (map_soundcloud_track(track) for track in source_tracks) if mapped is not None]
+    skipped = len(source_tracks) - len(mapped_tracks)
+
+    if not mapped_tracks:
+        return {"fetched": len(source_tracks), "imported": 0, "created": 0, "updated": 0, "skipped": skipped}
+
+    result = await proxy_request(
+        "POST",
+        f"{TRACKS_SERVICE_URL}/imports/soundcloud",
+        json_body={"owner_id": user.user_id, "tracks": mapped_tracks},
+        headers={"x-user-id": user.user_id},
+    )
+
+    return {
+        "fetched": len(source_tracks),
+        "imported": result.get("imported", 0),
+        "created": result.get("created", 0),
+        "updated": result.get("updated", 0),
+        "skipped": skipped,
+    }
 
 
 @app.post("/social/likes")

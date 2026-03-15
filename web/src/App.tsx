@@ -1,4 +1,5 @@
-import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes } from "react-router-dom";
+import { FormEvent, useEffect, useState } from "react";
+import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "./auth";
 import { FeedPage } from "./pages/FeedPage";
@@ -9,6 +10,24 @@ import { UploadPage } from "./pages/UploadPage";
 
 function AppLayout() {
   const { user, profile, loading, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [globalQuery, setGlobalQuery] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    setGlobalQuery(params.get("q") || "");
+  }, [location.search]);
+
+  function submitGlobalSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const params = new URLSearchParams();
+    const normalized = globalQuery.trim();
+    if (normalized) {
+      params.set("q", normalized);
+    }
+    navigate({ pathname: "/", search: params.toString() ? `?${params.toString()}` : "" });
+  }
 
   return (
     <div className="shell">
@@ -27,9 +46,13 @@ function AppLayout() {
           {!user ? <NavLink to="/login">Sign in</NavLink> : null}
         </nav>
 
-        <div className="topbar-search">
-          <span>Search tracks, artists, genres</span>
-        </div>
+        <form className="topbar-search" onSubmit={submitGlobalSearch}>
+          <input
+            value={globalQuery}
+            onChange={(event) => setGlobalQuery(event.target.value)}
+            placeholder="Search tracks, artists, genres"
+          />
+        </form>
 
         <div className="authbox">
           {loading ? <span className="muted">Session...</span> : null}

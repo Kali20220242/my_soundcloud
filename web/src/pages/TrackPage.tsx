@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   addComment,
   buildTrackAudioUrl,
+  buildSoundCloudEmbedUrl,
   deleteTrack,
   getLikeCount,
   getTrack,
@@ -199,7 +200,7 @@ export function TrackPage() {
   return (
     <section className="page track-page">
       <article className="card hero-track">
-        <ArtworkTile seed={track.id} title={track.title} size="lg" />
+        <ArtworkTile seed={track.id} title={track.title} size="lg" imageUrl={track.artwork_url} />
         <div className="hero-track-body">
           <h1>{track.title}</h1>
           <p className="muted">
@@ -225,7 +226,14 @@ export function TrackPage() {
       </article>
 
       <article className="card player-card">
-        {buildTrackAudioUrl(track) ? (
+        {buildSoundCloudEmbedUrl(track) ? (
+          <iframe
+            title={`soundcloud-${track.id}`}
+            className="soundcloud-embed"
+            src={buildSoundCloudEmbedUrl(track) || undefined}
+            allow="autoplay"
+          />
+        ) : buildTrackAudioUrl(track) ? (
           <audio className="audio" controls preload="none" src={buildTrackAudioUrl(track) || undefined} onPlay={() => void handlePlay()} />
         ) : (
           <p className="muted">Track is not published yet.</p>

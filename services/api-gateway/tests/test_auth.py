@@ -83,3 +83,47 @@ def test_gateway_avatar_presign_requires_auth_and_proxies(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["upload_url"] == "http://minio.local/upload"
+
+
+def test_gateway_soundcloud_import(monkeypatch) -> None:
+    async def fake_auth_from_request(_) -> GatewayUser:
+        return GatewayUser(user_id="alice", email="alice@example.com")
+
+    async def fake_fetch_soundcloud_tracks(access_token: str, limit: int):
+        assert access_token == "sc-token"
+        assert limit == 2
+        return [
+            {
+                "id": 10,
+                "title": "Track A",
+                "permalink_url": "https://soundcloud.com/alice/track-a",
+                "sharing": "public",
+                "user": {"username": "Alice"},
+                "playback_count": 12,
+            }
+        ]
+
+    async def fake_proxy_request(method: str, url: str, **kwargs):
+        assert method == "POST"
+        assert url.endswith("/imports/soundcloud")
+        assert kwargs["headers"] == {"x-user-id": "alice"}
+        assert kwargs["json_body"]["owner_id"] == "alice"
+        assert kwargs["json_body"]["tracks"][0]["source_track_id"] == "10"
+        return {"imported": 1, "created": 1, "updated": 0}
+
+    monkeypatch.setattr(main_module, "auth_from_request", fake_auth_from_request)
+    monkeypatch.setattr(main_module, "fetch_soundcloud_tracks", fake_fetch_soundcloud_tracks)
+    monkeypatch.setattr(main_module, "proxy_request", fake_proxy_request)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/integrations/soundcloud/import",
+            headers={"Authorization": "Bearer dev:alice"},
+            json={"access_token": "sc-token", "limit": 2},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["fetched"] == 1
+    assert payload["imported"] == 1
+    assert payload["created"] == 1

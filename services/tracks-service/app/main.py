@@ -63,6 +63,24 @@ class TrackFail(BaseModel):
     error_message: str
 
 
+class SoundCloudTrackImport(BaseModel):
+    source_track_id: str = Field(min_length=1, max_length=64)
+    source_url: str = Field(min_length=1, max_length=2000)
+    title: str = Field(min_length=1, max_length=180)
+    artist: str = Field(min_length=1, max_length=120)
+    visibility: str = "public"
+    description: str | None = Field(default=None, max_length=1000)
+    genre: str | None = Field(default=None, max_length=64)
+    artwork_url: str | None = Field(default=None, max_length=2000)
+    duration_seconds: int | None = Field(default=None, ge=0)
+    plays_count: int | None = Field(default=None, ge=0)
+
+
+class SoundCloudImportRequest(BaseModel):
+    owner_id: str
+    tracks: list[SoundCloudTrackImport] = Field(default_factory=list, max_length=1000)
+
+
 def create_tables() -> None:
     with engine.begin() as conn:
         conn.execute(
@@ -80,6 +98,10 @@ def create_tables() -> None:
                     description TEXT,
                     genre TEXT,
                     plays_count INTEGER NOT NULL DEFAULT 0,
+                    source TEXT NOT NULL DEFAULT 'local',
+                    source_track_id TEXT,
+                    source_url TEXT,
+                    artwork_url TEXT,
                     duration_seconds INTEGER,
                     loudness_lufs DOUBLE PRECISION,
                     error_message TEXT,
@@ -93,10 +115,24 @@ def create_tables() -> None:
         conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS description TEXT"))
         conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS genre TEXT"))
         conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS plays_count INTEGER NOT NULL DEFAULT 0"))
+        conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'local'"))
+        conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS source_track_id TEXT"))
+        conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS source_url TEXT"))
+        conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS artwork_url TEXT"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracks_owner ON tracks (owner_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracks_status ON tracks (status)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracks_visibility ON tracks (visibility)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracks_created ON tracks (created_at DESC)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracks_source ON tracks (source)"))
+        conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_tracks_source_track_unique
+                ON tracks (owner_id, source, source_track_id)
+                WHERE source_track_id IS NOT NULL
+                """
+            )
+        )
 
 
 def require_internal_token(x_internal_token: str | None) -> None:
@@ -152,6 +188,10 @@ def serialize_track(row) -> dict[str, str | int | float | None]:
         "description": row.description,
         "genre": row.genre,
         "plays_count": row.plays_count,
+        "source": row.source,
+        "source_track_id": row.source_track_id,
+        "source_url": row.source_url,
+        "artwork_url": row.artwork_url,
         "duration_seconds": row.duration_seconds,
         "loudness_lufs": row.loudness_lufs,
         "error_message": row.error_message,
@@ -191,8 +231,30 @@ def create_track(payload: TrackCreate) -> dict[str, str | int | float | None]:
         row = conn.execute(
             text(
                 """
-                INSERT INTO tracks (id, owner_id, title, artist, visibility, status, raw_object_key, description, genre)
-                VALUES (:id, :owner_id, :title, :artist, :visibility, 'processing', :raw_object_key, :description, :genre)
+                INSERT INTO tracks (
+                    id,
+                    owner_id,
+                    title,
+                    artist,
+                    visibility,
+                    status,
+                    raw_object_key,
+                    description,
+                    genre,
+                    source
+                )
+                VALUES (
+                    :id,
+                    :owner_id,
+                    :title,
+                    :artist,
+                    :visibility,
+                    'processing',
+                    :raw_object_key,
+                    :description,
+                    :genre,
+                    'local'
+                )
                 RETURNING *
                 """
             ),
@@ -209,6 +271,137 @@ def create_track(payload: TrackCreate) -> dict[str, str | int | float | None]:
         ).one()
 
     return serialize_track(row)
+
+
+@app.post("/imports/soundcloud")
+def import_soundcloud_tracks(
+    payload: SoundCloudImportRequest,
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, int]:
+    user_id = require_user(x_user_id)
+    if payload.owner_id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    created = 0
+    updated = 0
+    imported = 0
+
+    with engine.begin() as conn:
+        for track in payload.tracks:
+            imported += 1
+            normalized_visibility = normalize_visibility(track.visibility)
+            normalized_title = track.title.strip()
+            normalized_artist = track.artist.strip()
+            if not normalized_title:
+                normalized_title = f"SoundCloud Track {track.source_track_id}"
+            if not normalized_artist:
+                normalized_artist = "SoundCloud Artist"
+
+            existing = conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM tracks
+                    WHERE owner_id = :owner_id
+                      AND source = 'soundcloud'
+                      AND source_track_id = :source_track_id
+                    """
+                ),
+                {"owner_id": payload.owner_id, "source_track_id": track.source_track_id},
+            ).first()
+
+            values = {
+                "owner_id": payload.owner_id,
+                "source_track_id": track.source_track_id,
+                "source_url": track.source_url.strip(),
+                "title": normalized_title,
+                "artist": normalized_artist,
+                "visibility": normalized_visibility,
+                "description": normalize_optional_text(track.description),
+                "genre": normalize_optional_text(track.genre),
+                "artwork_url": normalize_optional_text(track.artwork_url),
+                "duration_seconds": track.duration_seconds,
+                "plays_count": int(track.plays_count or 0),
+            }
+
+            if existing is None:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO tracks (
+                            id,
+                            owner_id,
+                            title,
+                            artist,
+                            visibility,
+                            status,
+                            raw_object_key,
+                            processed_object_key,
+                            description,
+                            genre,
+                            plays_count,
+                            source,
+                            source_track_id,
+                            source_url,
+                            artwork_url,
+                            duration_seconds,
+                            published_at
+                        )
+                        VALUES (
+                            :id,
+                            :owner_id,
+                            :title,
+                            :artist,
+                            :visibility,
+                            'published',
+                            :raw_object_key,
+                            NULL,
+                            :description,
+                            :genre,
+                            :plays_count,
+                            'soundcloud',
+                            :source_track_id,
+                            :source_url,
+                            :artwork_url,
+                            :duration_seconds,
+                            NOW()
+                        )
+                        """
+                    ),
+                    {
+                        **values,
+                        "id": str(uuid4()),
+                        "raw_object_key": f"external/soundcloud/{payload.owner_id}/{track.source_track_id}",
+                    },
+                )
+                created += 1
+            else:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE tracks
+                        SET
+                            title = :title,
+                            artist = :artist,
+                            visibility = :visibility,
+                            status = 'published',
+                            description = :description,
+                            genre = :genre,
+                            plays_count = :plays_count,
+                            source_url = :source_url,
+                            artwork_url = :artwork_url,
+                            duration_seconds = :duration_seconds,
+                            error_message = NULL,
+                            published_at = COALESCE(published_at, NOW()),
+                            updated_at = NOW()
+                        WHERE id = :id
+                        """
+                    ),
+                    {**values, "id": str(existing.id)},
+                )
+                updated += 1
+
+    return {"imported": imported, "created": created, "updated": updated}
 
 
 @app.get("/tracks")
