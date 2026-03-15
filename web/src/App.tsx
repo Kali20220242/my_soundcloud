@@ -5,6 +5,7 @@ import { useAuth } from "./auth";
 import { FeedPage } from "./pages/FeedPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProfilePage } from "./pages/ProfilePage";
+import { SoundCloudImportPage } from "./pages/SoundCloudImportPage";
 import { TrackPage } from "./pages/TrackPage";
 import { UploadPage } from "./pages/UploadPage";
 
@@ -42,6 +43,7 @@ function AppLayout() {
         <nav className="navlinks sc-navlinks">
           <NavLink to="/">Home</NavLink>
           {user ? <NavLink to="/upload">Upload</NavLink> : null}
+          {user ? <NavLink to="/integrations/soundcloud/import">Import</NavLink> : null}
           {user ? <NavLink to={`/profiles/${user.user_id}`}>Library</NavLink> : null}
           {!user ? <NavLink to="/login">Sign in</NavLink> : null}
         </nav>
@@ -154,6 +156,14 @@ export function App() {
             element={
               <RequireAuth>
                 <UploadPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="integrations/soundcloud/import"
+            element={
+              <RequireAuth>
+                <SoundCloudImportPage />
               </RequireAuth>
             }
           />
